@@ -1,0 +1,191 @@
+*&---------------------------------------------------------------------* 
+*& Report ZPRGSD115_EMAIL_SEND_LOG_QUERY 
+*&---------------------------------------------------------------------* 
+*& 
+*&---------------------------------------------------------------------* 
+REPORT zprgsd115_email_send_log_query. 
+ 
+TABLES: ztblsd115_sndlog, sscrfields. 
+ 
+TYPES: tbl_sndlog TYPE STANDARD TABLE OF ztblsd115_sndlog, 
+       tbl_alv    TYPE STANDARD TABLE OF zstrsd115_send_log. 
+ 
+CONSTANTS: c_alv_log TYPE dd02l-tabname VALUE'ZSTRSD115_SEND_LOG'. 
+ 
+ 
+DATA: tbl_alv_log TYPE tbl_alv. 
+ 
+ 
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-t01. 
+  SELECT-OPTIONS: s_dokr   FOR ztblsd115_sndlog-doknr OBLIGATORY, 
+                  s_ctstat FOR ztblsd115_sndlog-status_control, 
+                  s_dtsend FOR ztblsd115_sndlog-date_send, 
+                  s_vrldat FOR ztblsd115_sndlog-vrldat. 
+SELECTION-SCREEN END OF BLOCK b1. 
+ 
+START-OF-SELECTION. 
+  PERFORM f_process_get_log. 
+ 
+*&---------------------------------------------------------------------* 
+*& Form f_process_get_log 
+*&---------------------------------------------------------------------* 
+FORM f_process_get_log . 
+ 
+  DATA: it_sndlog  TYPE tbl_sndlog. 
+ 
+  PERFORM f_reald_log_by_params CHANGING it_sndlog. 
+  IF it_sndlog IS INITIAL. 
+    MESSAGE e000(oo) WITH TEXT-t03. 
+    RETURN. 
+  ENDIF. 
+ 
+  PERFORM f_fill_info_log USING it_sndlog 
+                        CHANGING tbl_alv_log. 
+ 
+  PERFORM zf_show_report USING tbl_alv_log. 
+  IF tbl_alv_log IS INITIAL. 
+    MESSAGE e000(oo) WITH TEXT-t03. 
+    RETURN. 
+  ENDIF. 
+ 
+ENDFORM. 
+*&---------------------------------------------------------------------* 
+*& Form f_reald_log_by_params 
+*&---------------------------------------------------------------------* 
+FORM f_reald_log_by_params  CHANGING pt_sndlog TYPE tbl_sndlog. 
+ 
+  CLEAR: pt_sndlog. 
+ 
+  SELECT * 
+    FROM ztblsd115_sndlog 
+    INTO TABLE pt_sndlog 
+    WHERE doknr          IN s_dokr[] 
+      AND status_control IN s_ctstat[] 
+      AND date_send      IN s_dtsend[] 
+      AND vrldat         IN s_vrldat[]. 
+ 
+ENDFORM. 
+*&---------------------------------------------------------------------* 
+*& Form zf_show_report 
+*&---------------------------------------------------------------------* 
+FORM zf_show_report USING pt_alv_log TYPE tbl_alv. 
+ 
+  CHECK NOT pt_alv_log[] IS INITIAL. 
+ 
+  DATA: wa_layout    TYPE slis_layout_alv, 
+        it_field_cat TYPE  slis_t_fieldcat_alv. 
+ 
+  PERFORM zf_get_alv_fcat USING pt_alv_log CHANGING it_field_cat. 
+ 
+  PERFORM f_get_alv_layout CHANGING wa_layout. 
+ 
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY' 
+    EXPORTING 
+      i_callback_program       = sy-repid 
+      i_callback_pf_status_set = 'F_SET_STATUS' 
+      i_callback_user_command  = 'F_USER_COMMAND' 
+      is_layout                = wa_layout 
+      it_fieldcat              = it_field_cat[] 
+      i_save                   = 'A' 
+    TABLES 
+      t_outtab                 = pt_alv_log 
+    EXCEPTIONS 
+      program_error            = 1 
+      OTHERS                   = 2. 
+  IF sy-subrc <> 0. 
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno 
+               WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4. 
+ 
+  ENDIF. 
+ENDFORM. 
+*&---------------------------------------------------------------------* 
+*& Form f_fill_info_log 
+*&---------------------------------------------------------------------* 
+FORM f_fill_info_log USING pt_sndlog  TYPE tbl_sndlog 
+                  CHANGING pt_alv_log TYPE tbl_alv. 
+ 
+  DATA: wa_alv_log LIKE LINE OF pt_alv_log. 
+  CLEAR: pt_alv_log. 
+ 
+  LOOP AT pt_sndlog ASSIGNING FIELD-SYMBOL(<fs_sendlog>). 
+    CLEAR:wa_alv_log. 
+    MOVE-CORRESPONDING <fs_sendlog> TO wa_alv_log. 
+ 
+    APPEND wa_alv_log TO pt_alv_log. 
+  ENDLOOP. 
+ 
+ENDFORM. 
+*&---------------------------------------------------------------------* 
+*&      Form  ZF_GET_SUM_LAYOUT 
+*&---------------------------------------------------------------------* 
+FORM f_get_alv_layout  CHANGING pw_layout TYPE slis_layout_alv. 
+  CLEAR pw_layout. 
+ 
+  pw_layout-colwidth_optimize = abap_true. 
+  pw_layout-zebra             = abap_true. 
+ pw_layout-box_fieldname     = 'LINE_SELECT'. 
+ 
+ENDFORM.                    " ZF_GET_SUM_LAYOUT 
+*&---------------------------------------------------------------------* 
+*& Form zf_get_alv_fcat 
+*&---------------------------------------------------------------------* 
+FORM zf_get_alv_fcat  USING pt_alv_log TYPE tbl_alv 
+                   CHANGING pt_fcat    TYPE slis_t_fieldcat_alv. 
+ 
+  FIELD-SYMBOLS: <fs_fcat> LIKE LINE OF pt_fcat. 
+ 
+  CLEAR pt_fcat. 
+ 
+  CALL FUNCTION 'REUSE_ALV_FIELDCATALOG_MERGE' 
+    EXPORTING 
+      i_program_name         = sy-repid 
+      i_structure_name       = c_alv_log 
+    CHANGING 
+      ct_fieldcat            = pt_fcat 
+    EXCEPTIONS 
+      inconsistent_interface = 1 
+      program_error          = 2 
+      OTHERS                 = 3. 
+  IF sy-subrc <> 0. 
+    MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno 
+            WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4. 
+  ENDIF. 
+ 
+ENDFORM.                    " ZF_GET_SUM_FCAT 
+*&---------------------------------------------------------------------* 
+*& Form f_set_status 
+*&---------------------------------------------------------------------* 
+FORM f_set_status USING rt_extab TYPE slis_t_extab. 
+  DATA ob_alvgrid TYPE REF TO cl_gui_alv_grid. 
+ 
+  SET PF-STATUS 'ZSTATUS_LOG'. 
+ 
+  IF ob_alvgrid IS INITIAL. 
+    CALL FUNCTION 'GET_GLOBALS_FROM_SLVC_FULLSCR' 
+      IMPORTING 
+        e_grid = ob_alvgrid. 
+  ENDIF. 
+ 
+ENDFORM. 
+*&---------------------------------------------------------------------* 
+*& Form f_user_command 
+*&---------------------------------------------------------------------* 
+FORM f_user_command USING p_ucomm   LIKE sy-ucomm 
+                          p_selfield TYPE slis_selfield. 
+  CASE p_ucomm. 
+    WHEN 'SL'. 
+      PERFORM f_get_selected_rows USING p_selfield. 
+    WHEN OTHERS. 
+  ENDCASE. 
+ENDFORM. 
+*&---------------------------------------------------------------------* 
+*& Form f_get_selected_rows 
+*&---------------------------------------------------------------------* 
+FORM f_get_selected_rows USING p_selfield TYPE slis_selfield. 
+  LOOP AT tbl_alv_log ASSIGNING FIELD-SYMBOL(<fs_pt_alv_log>). 
+ 
+  ENDLOOP. 
+ 
+ENDFORM. 
+
+ 
